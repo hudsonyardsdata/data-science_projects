@@ -1,0 +1,2459 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "name": "ActBlue Donor Research Notebook - November 2020",
+      "provenance": [],
+      "collapsed_sections": [],
+      "authorship_tag": "ABX9TyNk7LSdBai6123hPcARTWBz",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/hudsonyardsdata/data-science_projects/blob/master/Actblue%20Research%20Notebook%20-%20January%202021\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "35pOvDZ0Q7mh"
+      },
+      "source": [
+        "\n",
+        "## Welcome to the Actblue Donor Research Tool\n",
+        "\n",
+        "This notebook allows users to pull ActBlue donation data for New York residents and research their trends. Insights from this analysis can be used for member recruitment drives or coalition building for DSA campaigns.\n",
+        "\n",
+        "### Step 0: Import neccessary packages (press Shift + Enter to run cells)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "WAgayMlVPmXc"
+      },
+      "source": [
+        "import os\n",
+        "import pandas as pd\n",
+        "import seaborn as sns\n",
+        "import numpy as np\n",
+        "import datetime as dt\n",
+        "import io\n",
+        "from google.colab import files\n",
+        "\n",
+        "# no scientific notation, show all columns, 100 max rows\n",
+        "pd.set_option('display.float_format', lambda x: '%.3f' % x)\n",
+        "pd.set_option('display.max_columns', None)\n",
+        "pd.set_option('display.max_rows', 100)"
+      ],
+      "execution_count": 3,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "soYPkSU5-i_g"
+      },
+      "source": [
+        "Install geocoding and mapping libraries that we will use.\r\n",
+        "- geopy, for consistant interface to different geocoding APIs\r\n",
+        "- folium, a python library for making interactive maps"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "MufDyJib-i1F",
+        "outputId": "676a3c84-793a-4efc-af50-0c3a6a78b8d7"
+      },
+      "source": [
+        "# Geocoding library \r\n",
+        "!pip install geopy\r\n",
+        "# Install folium\r\n",
+        "!pip install folium\r\n",
+        "\r\n",
+        "from geopy.geocoders import Nominatim\r\n",
+        "import folium"
+      ],
+      "execution_count": 4,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "text": [
+            "Requirement already satisfied: geopy in /usr/local/lib/python3.6/dist-packages (1.17.0)\n",
+            "Requirement already satisfied: geographiclib<2,>=1.49 in /usr/local/lib/python3.6/dist-packages (from geopy) (1.50)\n",
+            "Requirement already satisfied: folium in /usr/local/lib/python3.6/dist-packages (0.8.3)\n",
+            "Requirement already satisfied: numpy in /usr/local/lib/python3.6/dist-packages (from folium) (1.19.4)\n",
+            "Requirement already satisfied: six in /usr/local/lib/python3.6/dist-packages (from folium) (1.15.0)\n",
+            "Requirement already satisfied: branca>=0.3.0 in /usr/local/lib/python3.6/dist-packages (from folium) (0.4.1)\n",
+            "Requirement already satisfied: jinja2 in /usr/local/lib/python3.6/dist-packages (from folium) (2.11.2)\n",
+            "Requirement already satisfied: requests in /usr/local/lib/python3.6/dist-packages (from folium) (2.23.0)\n",
+            "Requirement already satisfied: MarkupSafe>=0.23 in /usr/local/lib/python3.6/dist-packages (from jinja2->folium) (1.1.1)\n",
+            "Requirement already satisfied: idna<3,>=2.5 in /usr/local/lib/python3.6/dist-packages (from requests->folium) (2.10)\n",
+            "Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.6/dist-packages (from requests->folium) (2020.12.5)\n",
+            "Requirement already satisfied: urllib3!=1.25.0,!=1.25.1,<1.26,>=1.21.1 in /usr/local/lib/python3.6/dist-packages (from requests->folium) (1.24.3)\n",
+            "Requirement already satisfied: chardet<4,>=3.0.2 in /usr/local/lib/python3.6/dist-packages (from requests->folium) (3.0.4)\n"
+          ],
+          "name": "stdout"
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "7H5cyFzC_At1"
+      },
+      "source": [
+        "Create a geocoder that uses the [OpenStreetMap Nominatim API](https://https://wiki.openstreetmap.org/wiki/Nominatim/FAQ)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "OwD1B9IQ-_L8"
+      },
+      "source": [
+        "geolocator = Nominatim(timeout=10, user_agent = \"dlab.berkeley.edu-workshop\")"
+      ],
+      "execution_count": 5,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "4U-HDt6Q-_Ss",
+        "outputId": "48c4c516-792d-462c-d556-0f062762d9f4"
+      },
+      "source": [
+        "location = geolocator.geocode('Barrows Hall, Berkeley CA')\r\n",
+        "location"
+      ],
+      "execution_count": 6,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "Location(Social Sciences Building, Eshleman Road, Southside, Berkeley, Alameda County, California, 94720-1076, United States, (37.87010975, -122.25792906636786, 0.0))"
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 6
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "EYEwq9Fr-_cK",
+        "outputId": "1942a2cc-1407-429b-f594-14338d565c79"
+      },
+      "source": [
+        "address_i = '431 E 20th St'\r\n",
+        "city_i = 'New York'\r\n",
+        "state_i = 'NY'\r\n",
+        "zip_i = '10010'\r\n",
+        "\r\n",
+        "location_i = geolocator.geocode('431 E 20th St, New York, NY 10010')\r\n",
+        "location_i"
+      ],
+      "execution_count": 7,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "Location(431, East 20th Street, Stuy Town, Peter Cooper Village, Manhattan, New York County, New York, 10010, United States, (40.7347683, -73.97850015305275, 0.0))"
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 7
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "vzhi3fL-Ru2H"
+      },
+      "source": [
+        "### Step 1: Pull the data\n",
+        "The data for this analysis is hosted by Propublica using the FEC Itemizer tool. It contains all campaign finance filings for Democratic races in all states, but we focus on data from New York for this illustrative walkthrough. <br>\n",
+        "\n",
+        "The FEC Itemizer homepage and documentation can be found here:\n",
+        "https://projects.propublica.org/itemizer/committee/C00401224/2020\n",
+        "\n",
+        "And the specific downloads sections for donations by New York residents can be found here:\n",
+        "https://projects.propublica.org/itemizer/committee/C00401224/2020/filings/1378435/downloads"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "gUcFUnD1RvGt",
+        "outputId": "76ecba67-1306-492c-de9a-321abffdcab0"
+      },
+      "source": [
+        "# here we keep the URL NY in Fiscal Year 2019 -- run cell to read it in\n",
+        "act_blue_fy = pd.read_csv('https://pp-projects-static.s3.amazonaws.com/itemizer/sa_1378435_ny.csv?_ga=2.215991255.1140628466.1588686936-1705077821.1588686936')\n",
+        "act_blue_fy.shape"
+      ],
+      "execution_count": 8,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "text": [
+            "/usr/local/lib/python3.6/dist-packages/IPython/core/interactiveshell.py:2718: DtypeWarning: Columns (4,11,14,19,20) have mixed types.Specify dtype option on import or set low_memory=False.\n",
+            "  interactivity=interactivity, compiler=compiler, result=result)\n"
+          ],
+          "name": "stderr"
+        },
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "(2033656, 24)"
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 8
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "zjPa5Y-BRuxV"
+      },
+      "source": [
+        "We have a number of variables, most notably:\n",
+        "- First and Last Name, \n",
+        "- Address and Zipcode, \n",
+        "- Employer and Occupation,\n",
+        "- Donation Date, Campaign Benefiting and Amount"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 80
+        },
+        "id": "XqVFDv5-RegD",
+        "outputId": "50a907c5-6874-4d21-96f8-b353d40b3a45"
+      },
+      "source": [
+        "# Who sent donation - last, first, address, zip, employer., occupation\n",
+        "sample = act_blue_fy[['last_name','first_name','address_one','city','state','zip','employer','occupation','date','memo_text','amount']]\n",
+        "\n",
+        "sample = sample[sample['last_name'] == 'DROBKOV']\n",
+        "sample.head(1)"
+      ],
+      "execution_count": 9,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/html": [
+              "<div>\n",
+              "<style scoped>\n",
+              "    .dataframe tbody tr th:only-of-type {\n",
+              "        vertical-align: middle;\n",
+              "    }\n",
+              "\n",
+              "    .dataframe tbody tr th {\n",
+              "        vertical-align: top;\n",
+              "    }\n",
+              "\n",
+              "    .dataframe thead th {\n",
+              "        text-align: right;\n",
+              "    }\n",
+              "</style>\n",
+              "<table border=\"1\" class=\"dataframe\">\n",
+              "  <thead>\n",
+              "    <tr style=\"text-align: right;\">\n",
+              "      <th></th>\n",
+              "      <th>last_name</th>\n",
+              "      <th>first_name</th>\n",
+              "      <th>address_one</th>\n",
+              "      <th>city</th>\n",
+              "      <th>state</th>\n",
+              "      <th>zip</th>\n",
+              "      <th>employer</th>\n",
+              "      <th>occupation</th>\n",
+              "      <th>date</th>\n",
+              "      <th>memo_text</th>\n",
+              "      <th>amount</th>\n",
+              "    </tr>\n",
+              "  </thead>\n",
+              "  <tbody>\n",
+              "    <tr>\n",
+              "      <th>473444</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>BCG</td>\n",
+              "      <td>DATA SCIENTIST</td>\n",
+              "      <td>2019-9-27</td>\n",
+              "      <td>Earmarked for BERNIE 2020 (C00696948)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "  </tbody>\n",
+              "</table>\n",
+              "</div>"
+            ],
+            "text/plain": [
+              "       last_name first_name           address_one      city state    zip  \\\n",
+              "473444   DROBKOV       GLEB  313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "\n",
+              "       employer      occupation       date  \\\n",
+              "473444      BCG  DATA SCIENTIST  2019-9-27   \n",
+              "\n",
+              "                                    memo_text  amount  \n",
+              "473444  Earmarked for BERNIE 2020 (C00696948)  50.000  "
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 9
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "fgNBqcjiUiVz"
+      },
+      "source": [
+        "With a slow internet connection, each monthly download file of ~100 MB may take some time to download. So for this example, we have only included data through Super Tuesday, in March 2020 "
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "i13RjulcUhbj",
+        "outputId": "9c274ec5-5f2e-424a-9673-6c7d9a632d1d"
+      },
+      "source": [
+        "# read from online\n",
+        "url_feb = 'https://pp-projects-static.s3.amazonaws.com/itemizer/sa_1385527_ny.csv'\n",
+        "url_mar = 'https://pp-projects-static.s3.amazonaws.com/itemizer/sa_1391686_ny.csv'\n",
+        "url_apr = 'https://pp-projects-static.s3.amazonaws.com/itemizer/sa_1402724_ny.csv'\n",
+        "url_may = 'https://pp-projects-static.s3.amazonaws.com/itemizer/sa_1407307_ny.csv'\n",
+        "url_jun = 'https://pp-projects-static.s3.amazonaws.com/itemizer/sa_1413483_ny.csv'\n",
+        "url_jul = 'https://pp-projects-static.s3.amazonaws.com/itemizer/sa_1427110_ny.csv'\n",
+        "url_aug = 'https://pp-projects-static.s3.amazonaws.com/itemizer/sa_1434463_ny.csv'\n",
+        "url_sep = 'https://pp-projects-static.s3.amazonaws.com/itemizer/sa_1440521_ny.csv'\n",
+        "\n",
+        "# Read in only \n",
+        "act_blue_feb = pd.read_csv(url_feb)\n",
+        "act_blue_mar = pd.read_csv(url_mar)\n",
+        "act_blue_apr = pd.read_csv(url_apr)\n",
+        "act_blue_may = pd.read_csv(url_may)\n",
+        "act_blue_jun = pd.read_csv(url_jun)\n",
+        "act_blue_jul = pd.read_csv(url_jul)\n",
+        "act_blue_aug = pd.read_csv(url_aug)\n",
+        "act_blue_sep = pd.read_csv(url_sep)\n",
+        "\n",
+        "# Add period column to distinguish between months\n",
+        "act_blue_fy['period'] = 201912\n",
+        "act_blue_feb['period'] = 202001\n",
+        "act_blue_mar['period'] = 202002\n",
+        "act_blue_apr['period'] = 202003\n",
+        "act_blue_may['period'] = 202004\n",
+        "act_blue_jun['period'] = 202005\n",
+        "act_blue_jul['period'] = 202006\n",
+        "act_blue_aug['period'] = 202007\n",
+        "act_blue_sep['period'] = 202008\n",
+        "\n",
+        "# Combine\n",
+        "act_blue_raw = pd.concat([act_blue_fy,act_blue_feb,act_blue_mar,act_blue_apr,act_blue_may,act_blue_jun,act_blue_jul,act_blue_aug,act_blue_sep])\n",
+        "act_blue_raw.shape"
+      ],
+      "execution_count": 10,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "text": [
+            "/usr/local/lib/python3.6/dist-packages/IPython/core/interactiveshell.py:2718: DtypeWarning: Columns (4,11,14) have mixed types.Specify dtype option on import or set low_memory=False.\n",
+            "  interactivity=interactivity, compiler=compiler, result=result)\n",
+            "/usr/local/lib/python3.6/dist-packages/IPython/core/interactiveshell.py:2718: DtypeWarning: Columns (4,14) have mixed types.Specify dtype option on import or set low_memory=False.\n",
+            "  interactivity=interactivity, compiler=compiler, result=result)\n",
+            "/usr/local/lib/python3.6/dist-packages/IPython/core/interactiveshell.py:2718: DtypeWarning: Columns (4,11,14,19,20) have mixed types.Specify dtype option on import or set low_memory=False.\n",
+            "  interactivity=interactivity, compiler=compiler, result=result)\n"
+          ],
+          "name": "stderr"
+        },
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "(6851931, 25)"
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 10
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "Cq0KPp5fhbyk"
+      },
+      "source": [
+        "# Success! \n",
+        "Your data is downloaded, and you have 3.7 MM + donations ingested for analysis.\n",
+        "\n",
+        "### Use case 1: Research an individual\n",
+        "Search for an individual's contributions by their last name"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 700
+        },
+        "id": "g-XUfHuahb5v",
+        "outputId": "32893e0b-c2e4-4540-e4c6-bb48e04f58ab"
+      },
+      "source": [
+        "# Subset the desired columns\n",
+        "sample_raw = act_blue_raw[['last_name','first_name','address_one','city','state','zip','employer','occupation','date','memo_text','amount']]\n",
+        "sample = sample_raw\n",
+        "\n",
+        "# Enter a desired search parameter\n",
+        "# For last name\n",
+        "sample_name = sample[sample['last_name'] == 'DROBKOV']\n",
+        "sample_name\n"
+      ],
+      "execution_count": 11,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/html": [
+              "<div>\n",
+              "<style scoped>\n",
+              "    .dataframe tbody tr th:only-of-type {\n",
+              "        vertical-align: middle;\n",
+              "    }\n",
+              "\n",
+              "    .dataframe tbody tr th {\n",
+              "        vertical-align: top;\n",
+              "    }\n",
+              "\n",
+              "    .dataframe thead th {\n",
+              "        text-align: right;\n",
+              "    }\n",
+              "</style>\n",
+              "<table border=\"1\" class=\"dataframe\">\n",
+              "  <thead>\n",
+              "    <tr style=\"text-align: right;\">\n",
+              "      <th></th>\n",
+              "      <th>last_name</th>\n",
+              "      <th>first_name</th>\n",
+              "      <th>address_one</th>\n",
+              "      <th>city</th>\n",
+              "      <th>state</th>\n",
+              "      <th>zip</th>\n",
+              "      <th>employer</th>\n",
+              "      <th>occupation</th>\n",
+              "      <th>date</th>\n",
+              "      <th>memo_text</th>\n",
+              "      <th>amount</th>\n",
+              "    </tr>\n",
+              "  </thead>\n",
+              "  <tbody>\n",
+              "    <tr>\n",
+              "      <th>473444</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>BCG</td>\n",
+              "      <td>DATA SCIENTIST</td>\n",
+              "      <td>2019-9-27</td>\n",
+              "      <td>Earmarked for BERNIE 2020 (C00696948)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473445</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>BCG</td>\n",
+              "      <td>DATA SCIENTIST</td>\n",
+              "      <td>2019-12-16</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>2.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473446</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>BCG</td>\n",
+              "      <td>DATA SCIENTIST</td>\n",
+              "      <td>2019-12-16</td>\n",
+              "      <td>Earmarked for ALEXANDRIA OCASIO-CORTEZ FOR CON...</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473447</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2019-12-16</td>\n",
+              "      <td>Earmarked for WARREN FOR PRESIDENT, INC. (C006...</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473448</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2019-12-16</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>2.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473449</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2019-12-31</td>\n",
+              "      <td>Earmarked for BERNIE 2020 (C00696948)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473450</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2019-12-31</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>2.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>176053</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-2-6</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>3.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>176054</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-2-6</td>\n",
+              "      <td>Earmarked for BERNIE 2020 (C00696948)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>108281</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-05-05</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>1.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>108282</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-05-05</td>\n",
+              "      <td>Earmarked for ALEXANDRIA OCASIO-CORTEZ FOR CON...</td>\n",
+              "      <td>10.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>108283</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-05-25</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>2.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>108284</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-05-25</td>\n",
+              "      <td>Earmarked for BIDEN FOR PRESIDENT (C00703975)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>154843</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-06-12</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>3.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>154844</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-06-12</td>\n",
+              "      <td>Earmarked for MONDAIRE FOR CONGRESS (C00711150)</td>\n",
+              "      <td>100.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>154845</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-06-16</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>3.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>154846</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-06-16</td>\n",
+              "      <td>Earmarked for LOPEZ FOR THE PEOPLE (C00717256)</td>\n",
+              "      <td>100.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>126833</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-07-01</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>1.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>126834</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-07-01</td>\n",
+              "      <td>Earmarked for THE SQUAD VICTORY FUND (C00750166)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>914492</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-08-11</td>\n",
+              "      <td>Earmarked for BIDEN FOR PRESIDENT (C00703975)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>914493</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-08-11</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>3.000</td>\n",
+              "    </tr>\n",
+              "  </tbody>\n",
+              "</table>\n",
+              "</div>"
+            ],
+            "text/plain": [
+              "       last_name first_name            address_one      city state    zip  \\\n",
+              "473444   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "473445   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "473446   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "473447   DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "473448   DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "473449   DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "473450   DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "176053   DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "176054   DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "108281   DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "108282   DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "108283   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "108284   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "154843   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "154844   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "154845   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "154846   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "126833   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "126834   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "914492   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "914493   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "\n",
+              "         employer      occupation        date  \\\n",
+              "473444        BCG  DATA SCIENTIST   2019-9-27   \n",
+              "473445        BCG  DATA SCIENTIST  2019-12-16   \n",
+              "473446        BCG  DATA SCIENTIST  2019-12-16   \n",
+              "473447  CAPGEMINI      CONSULTANT  2019-12-16   \n",
+              "473448  CAPGEMINI      CONSULTANT  2019-12-16   \n",
+              "473449  CAPGEMINI      CONSULTANT  2019-12-31   \n",
+              "473450  CAPGEMINI      CONSULTANT  2019-12-31   \n",
+              "176053  CAPGEMINI      CONSULTANT    2020-2-6   \n",
+              "176054  CAPGEMINI      CONSULTANT    2020-2-6   \n",
+              "108281  CAPGEMINI      CONSULTANT  2020-05-05   \n",
+              "108282  CAPGEMINI      CONSULTANT  2020-05-05   \n",
+              "108283  CAPGEMINI      CONSULTANT  2020-05-25   \n",
+              "108284  CAPGEMINI      CONSULTANT  2020-05-25   \n",
+              "154843  CAPGEMINI      CONSULTANT  2020-06-12   \n",
+              "154844  CAPGEMINI      CONSULTANT  2020-06-12   \n",
+              "154845  CAPGEMINI      CONSULTANT  2020-06-16   \n",
+              "154846  CAPGEMINI      CONSULTANT  2020-06-16   \n",
+              "126833  CAPGEMINI      CONSULTANT  2020-07-01   \n",
+              "126834  CAPGEMINI      CONSULTANT  2020-07-01   \n",
+              "914492  CAPGEMINI      CONSULTANT  2020-08-11   \n",
+              "914493  CAPGEMINI      CONSULTANT  2020-08-11   \n",
+              "\n",
+              "                                                memo_text  amount  \n",
+              "473444              Earmarked for BERNIE 2020 (C00696948)  50.000  \n",
+              "473445                            Contribution to ActBlue   2.000  \n",
+              "473446  Earmarked for ALEXANDRIA OCASIO-CORTEZ FOR CON...  50.000  \n",
+              "473447  Earmarked for WARREN FOR PRESIDENT, INC. (C006...  50.000  \n",
+              "473448                            Contribution to ActBlue   2.000  \n",
+              "473449              Earmarked for BERNIE 2020 (C00696948)  50.000  \n",
+              "473450                            Contribution to ActBlue   2.000  \n",
+              "176053                            Contribution to ActBlue   3.000  \n",
+              "176054              Earmarked for BERNIE 2020 (C00696948)  50.000  \n",
+              "108281                            Contribution to ActBlue   1.000  \n",
+              "108282  Earmarked for ALEXANDRIA OCASIO-CORTEZ FOR CON...  10.000  \n",
+              "108283                            Contribution to ActBlue   2.000  \n",
+              "108284      Earmarked for BIDEN FOR PRESIDENT (C00703975)  50.000  \n",
+              "154843                            Contribution to ActBlue   3.000  \n",
+              "154844    Earmarked for MONDAIRE FOR CONGRESS (C00711150) 100.000  \n",
+              "154845                            Contribution to ActBlue   3.000  \n",
+              "154846     Earmarked for LOPEZ FOR THE PEOPLE (C00717256) 100.000  \n",
+              "126833                            Contribution to ActBlue   1.000  \n",
+              "126834   Earmarked for THE SQUAD VICTORY FUND (C00750166)  50.000  \n",
+              "914492      Earmarked for BIDEN FOR PRESIDENT (C00703975)  50.000  \n",
+              "914493                            Contribution to ActBlue   3.000  "
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 11
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "BIff3rd8A4v8"
+      },
+      "source": [
+        "Geocode the addresses in the Pandas Dataframe\r\n",
+        "The next cell does the following\r\n",
+        "\r\n",
+        "Iterates over all rows in the dataframe df.\r\n",
+        "Joins the values in the columns Landmark, City, and State into one string (the full address)\r\n",
+        "Submits the string we just created as the address to be geocoded\r\n",
+        "Saves results to the geocodes list object.\r\n",
+        "\r\n",
+        "(Credit to Patty Frontiera, pfrontiera@berkeley.edu for the method: https://colab.research.google.com/drive/19TbFZCaOBcCJ8aNoRM0CAfhAZqDnPaVm#scrollTo=loRgUnogfCut) "
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 111
+        },
+        "id": "9MSVuyW1BZQd",
+        "outputId": "a529d065-9ee2-4bd7-e7c9-4bc07867293c"
+      },
+      "source": [
+        "df_unique_name_address = sample_name[['last_name','first_name','address_one','city','state','zip']]\r\n",
+        "df_unique_name_address = df_unique_name_address.drop_duplicates()\r\n",
+        "df = df_unique_name_address.head(2)\r\n",
+        "\r\n",
+        "df"
+      ],
+      "execution_count": 12,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/html": [
+              "<div>\n",
+              "<style scoped>\n",
+              "    .dataframe tbody tr th:only-of-type {\n",
+              "        vertical-align: middle;\n",
+              "    }\n",
+              "\n",
+              "    .dataframe tbody tr th {\n",
+              "        vertical-align: top;\n",
+              "    }\n",
+              "\n",
+              "    .dataframe thead th {\n",
+              "        text-align: right;\n",
+              "    }\n",
+              "</style>\n",
+              "<table border=\"1\" class=\"dataframe\">\n",
+              "  <thead>\n",
+              "    <tr style=\"text-align: right;\">\n",
+              "      <th></th>\n",
+              "      <th>last_name</th>\n",
+              "      <th>first_name</th>\n",
+              "      <th>address_one</th>\n",
+              "      <th>city</th>\n",
+              "      <th>state</th>\n",
+              "      <th>zip</th>\n",
+              "    </tr>\n",
+              "  </thead>\n",
+              "  <tbody>\n",
+              "    <tr>\n",
+              "      <th>473444</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473447</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "    </tr>\n",
+              "  </tbody>\n",
+              "</table>\n",
+              "</div>"
+            ],
+            "text/plain": [
+              "       last_name first_name            address_one      city state    zip\n",
+              "473444   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011\n",
+              "473447   DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010"
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 12
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "MTvQxP9OChm1",
+        "outputId": "8b89f7f6-7740-4f54-9f68-ed5d8905da7b"
+      },
+      "source": [
+        "df[['address_one']].iloc[1]"
+      ],
+      "execution_count": 13,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "address_one    431 E 20TH ST APT 13F\n",
+              "Name: 473447, dtype: object"
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 13
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "e06jPnQp-JYA",
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "outputId": "df287ac1-0b61-4153-ea3a-993e0ac1fa06"
+      },
+      "source": [
+        "geocode1 = [geolocator.geocode('313 W 22ND ST New York, NY 10011')]\r\n",
+        "geocode2 = [geolocator.geocode('431 E 20TH ST New York, NY 10010')]\r\n",
+        "print(geocode1)\r\n",
+        "print(geocode2)"
+      ],
+      "execution_count": 14,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "text": [
+            "[Location(West 22nd Street, Chelsea, Manhattan Community Board 4, Manhattan, New York County, New York, 10011, United States, (40.74463, -73.9989693, 0.0))]\n",
+            "[Location(431, East 20th Street, Stuy Town, Peter Cooper Village, Manhattan, New York County, New York, 10010, United States, (40.7347683, -73.97850015305275, 0.0))]\n"
+          ],
+          "name": "stdout"
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "99phB224KyuB"
+      },
+      "source": [
+        "lons =  [-73.9989693, -73.97850015305275]\r\n",
+        "lats = [40.74463, 40.7347683]"
+      ],
+      "execution_count": 15,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "cvXod9z_IwVh"
+      },
+      "source": [
+        "# ', '.join([df['Landmark'][i], df['City'][i], df['State'][i]])"
+      ],
+      "execution_count": 16,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "7nqdN7vIBCSZ"
+      },
+      "source": [
+        "Add the output latitude and longitude values in the geocodes list to the df dataframe."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 315
+        },
+        "id": "9MIz0nROBCXY",
+        "outputId": "9b23c3b8-cee9-478c-c072-e9e5f717c7ea"
+      },
+      "source": [
+        "df['lat'] = lats\r\n",
+        "df['lon'] = lons\r\n",
+        "df"
+      ],
+      "execution_count": 17,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "text": [
+            "/usr/local/lib/python3.6/dist-packages/ipykernel_launcher.py:1: SettingWithCopyWarning: \n",
+            "A value is trying to be set on a copy of a slice from a DataFrame.\n",
+            "Try using .loc[row_indexer,col_indexer] = value instead\n",
+            "\n",
+            "See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy\n",
+            "  \"\"\"Entry point for launching an IPython kernel.\n",
+            "/usr/local/lib/python3.6/dist-packages/ipykernel_launcher.py:2: SettingWithCopyWarning: \n",
+            "A value is trying to be set on a copy of a slice from a DataFrame.\n",
+            "Try using .loc[row_indexer,col_indexer] = value instead\n",
+            "\n",
+            "See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy\n",
+            "  \n"
+          ],
+          "name": "stderr"
+        },
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/html": [
+              "<div>\n",
+              "<style scoped>\n",
+              "    .dataframe tbody tr th:only-of-type {\n",
+              "        vertical-align: middle;\n",
+              "    }\n",
+              "\n",
+              "    .dataframe tbody tr th {\n",
+              "        vertical-align: top;\n",
+              "    }\n",
+              "\n",
+              "    .dataframe thead th {\n",
+              "        text-align: right;\n",
+              "    }\n",
+              "</style>\n",
+              "<table border=\"1\" class=\"dataframe\">\n",
+              "  <thead>\n",
+              "    <tr style=\"text-align: right;\">\n",
+              "      <th></th>\n",
+              "      <th>last_name</th>\n",
+              "      <th>first_name</th>\n",
+              "      <th>address_one</th>\n",
+              "      <th>city</th>\n",
+              "      <th>state</th>\n",
+              "      <th>zip</th>\n",
+              "      <th>lat</th>\n",
+              "      <th>lon</th>\n",
+              "    </tr>\n",
+              "  </thead>\n",
+              "  <tbody>\n",
+              "    <tr>\n",
+              "      <th>473444</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>40.745</td>\n",
+              "      <td>-73.999</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473447</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>40.735</td>\n",
+              "      <td>-73.979</td>\n",
+              "    </tr>\n",
+              "  </tbody>\n",
+              "</table>\n",
+              "</div>"
+            ],
+            "text/plain": [
+              "       last_name first_name            address_one      city state    zip  \\\n",
+              "473444   DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "473447   DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "\n",
+              "          lat     lon  \n",
+              "473444 40.745 -73.999  \n",
+              "473447 40.735 -73.979  "
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 17
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "5w_Y0U60BCb-"
+      },
+      "source": [
+        "These guys are real pros -- beautiful visualization on open source maps:"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 1000
+        },
+        "id": "AdS5qWcbBCfm",
+        "outputId": "d3bf068e-ef16-4524-dfa5-27191fb55df9"
+      },
+      "source": [
+        "map1 = folium.Map(location=(40.745,-73.999), zoom_start=14)\r\n",
+        "for index,row in df.iterrows(): \r\n",
+        "  # Add the geocoded locations to the map\r\n",
+        "  folium.Marker(location=(row['lat'],row['lon']), popup=row['last_name']).add_to(map1)\r\n",
+        "\r\n",
+        "display(map1)"
+      ],
+      "execution_count": 18,
+      "outputs": [
+        {
+          "output_type": "display_data",
+          "data": {
+            "text/html": [
+              "<div style=\"width:100%;\"><div style=\"position:relative;width:100%;height:0;padding-bottom:60%;\"><span style=\"color:#565656\">Make this Notebook Trusted to load map: File -> Trust Notebook</span><iframe src=\"about:blank\" style=\"position:absolute;width:100%;height:100%;left:0;top:0;border:none !important;\" data-html=PCFET0NUWVBFIGh0bWw+CjxoZWFkPiAgICAKICAgIDxtZXRhIGh0dHAtZXF1aXY9ImNvbnRlbnQtdHlwZSIgY29udGVudD0idGV4dC9odG1sOyBjaGFyc2V0PVVURi04IiAvPgogICAgPHNjcmlwdD5MX1BSRUZFUl9DQU5WQVM9ZmFsc2U7IExfTk9fVE9VQ0g9ZmFsc2U7IExfRElTQUJMRV8zRD1mYWxzZTs8L3NjcmlwdD4KICAgIDxzY3JpcHQgc3JjPSJodHRwczovL2Nkbi5qc2RlbGl2ci5uZXQvbnBtL2xlYWZsZXRAMS40LjAvZGlzdC9sZWFmbGV0LmpzIj48L3NjcmlwdD4KICAgIDxzY3JpcHQgc3JjPSJodHRwczovL2NvZGUuanF1ZXJ5LmNvbS9qcXVlcnktMS4xMi40Lm1pbi5qcyI+PC9zY3JpcHQ+CiAgICA8c2NyaXB0IHNyYz0iaHR0cHM6Ly9tYXhjZG4uYm9vdHN0cmFwY2RuLmNvbS9ib290c3RyYXAvMy4yLjAvanMvYm9vdHN0cmFwLm1pbi5qcyI+PC9zY3JpcHQ+CiAgICA8c2NyaXB0IHNyYz0iaHR0cHM6Ly9jZG5qcy5jbG91ZGZsYXJlLmNvbS9hamF4L2xpYnMvTGVhZmxldC5hd2Vzb21lLW1hcmtlcnMvMi4wLjIvbGVhZmxldC5hd2Vzb21lLW1hcmtlcnMuanMiPjwvc2NyaXB0PgogICAgPGxpbmsgcmVsPSJzdHlsZXNoZWV0IiBocmVmPSJodHRwczovL2Nkbi5qc2RlbGl2ci5uZXQvbnBtL2xlYWZsZXRAMS40LjAvZGlzdC9sZWFmbGV0LmNzcyIvPgogICAgPGxpbmsgcmVsPSJzdHlsZXNoZWV0IiBocmVmPSJodHRwczovL21heGNkbi5ib290c3RyYXBjZG4uY29tL2Jvb3RzdHJhcC8zLjIuMC9jc3MvYm9vdHN0cmFwLm1pbi5jc3MiLz4KICAgIDxsaW5rIHJlbD0ic3R5bGVzaGVldCIgaHJlZj0iaHR0cHM6Ly9tYXhjZG4uYm9vdHN0cmFwY2RuLmNvbS9ib290c3RyYXAvMy4yLjAvY3NzL2Jvb3RzdHJhcC10aGVtZS5taW4uY3NzIi8+CiAgICA8bGluayByZWw9InN0eWxlc2hlZXQiIGhyZWY9Imh0dHBzOi8vbWF4Y2RuLmJvb3RzdHJhcGNkbi5jb20vZm9udC1hd2Vzb21lLzQuNi4zL2Nzcy9mb250LWF3ZXNvbWUubWluLmNzcyIvPgogICAgPGxpbmsgcmVsPSJzdHlsZXNoZWV0IiBocmVmPSJodHRwczovL2NkbmpzLmNsb3VkZmxhcmUuY29tL2FqYXgvbGlicy9MZWFmbGV0LmF3ZXNvbWUtbWFya2Vycy8yLjAuMi9sZWFmbGV0LmF3ZXNvbWUtbWFya2Vycy5jc3MiLz4KICAgIDxsaW5rIHJlbD0ic3R5bGVzaGVldCIgaHJlZj0iaHR0cHM6Ly9yYXdjZG4uZ2l0aGFjay5jb20vcHl0aG9uLXZpc3VhbGl6YXRpb24vZm9saXVtL21hc3Rlci9mb2xpdW0vdGVtcGxhdGVzL2xlYWZsZXQuYXdlc29tZS5yb3RhdGUuY3NzIi8+CiAgICA8c3R5bGU+aHRtbCwgYm9keSB7d2lkdGg6IDEwMCU7aGVpZ2h0OiAxMDAlO21hcmdpbjogMDtwYWRkaW5nOiAwO308L3N0eWxlPgogICAgPHN0eWxlPiNtYXAge3Bvc2l0aW9uOmFic29sdXRlO3RvcDowO2JvdHRvbTowO3JpZ2h0OjA7bGVmdDowO308L3N0eWxlPgogICAgCiAgICA8bWV0YSBuYW1lPSJ2aWV3cG9ydCIgY29udGVudD0id2lkdGg9ZGV2aWNlLXdpZHRoLAogICAgICAgIGluaXRpYWwtc2NhbGU9MS4wLCBtYXhpbXVtLXNjYWxlPTEuMCwgdXNlci1zY2FsYWJsZT1ubyIgLz4KICAgIDxzdHlsZT4jbWFwXzFlMjFiMTZjMjRhMjRmMmRhNjQ5ODc2M2FlNTY3NDc2IHsKICAgICAgICBwb3NpdGlvbjogcmVsYXRpdmU7CiAgICAgICAgd2lkdGg6IDEwMC4wJTsKICAgICAgICBoZWlnaHQ6IDEwMC4wJTsKICAgICAgICBsZWZ0OiAwLjAlOwogICAgICAgIHRvcDogMC4wJTsKICAgICAgICB9CiAgICA8L3N0eWxlPgo8L2hlYWQ+Cjxib2R5PiAgICAKICAgIAogICAgPGRpdiBjbGFzcz0iZm9saXVtLW1hcCIgaWQ9Im1hcF8xZTIxYjE2YzI0YTI0ZjJkYTY0OTg3NjNhZTU2NzQ3NiIgPjwvZGl2Pgo8L2JvZHk+CjxzY3JpcHQ+ICAgIAogICAgCiAgICAKICAgICAgICB2YXIgYm91bmRzID0gbnVsbDsKICAgIAoKICAgIHZhciBtYXBfMWUyMWIxNmMyNGEyNGYyZGE2NDk4NzYzYWU1Njc0NzYgPSBMLm1hcCgKICAgICAgICAnbWFwXzFlMjFiMTZjMjRhMjRmMmRhNjQ5ODc2M2FlNTY3NDc2JywgewogICAgICAgIGNlbnRlcjogWzQwLjc0NSwgLTczLjk5OV0sCiAgICAgICAgem9vbTogMTQsCiAgICAgICAgbWF4Qm91bmRzOiBib3VuZHMsCiAgICAgICAgbGF5ZXJzOiBbXSwKICAgICAgICB3b3JsZENvcHlKdW1wOiBmYWxzZSwKICAgICAgICBjcnM6IEwuQ1JTLkVQU0czODU3LAogICAgICAgIHpvb21Db250cm9sOiB0cnVlLAogICAgICAgIH0pOwoKCiAgICAKICAgIHZhciB0aWxlX2xheWVyXzA3NGVmN2I2ZDllZTRjNTU5MmJjZmIxNTQzZTY3NmExID0gTC50aWxlTGF5ZXIoCiAgICAgICAgJ2h0dHBzOi8ve3N9LnRpbGUub3BlbnN0cmVldG1hcC5vcmcve3p9L3t4fS97eX0ucG5nJywKICAgICAgICB7CiAgICAgICAgImF0dHJpYnV0aW9uIjogbnVsbCwKICAgICAgICAiZGV0ZWN0UmV0aW5hIjogZmFsc2UsCiAgICAgICAgIm1heE5hdGl2ZVpvb20iOiAxOCwKICAgICAgICAibWF4Wm9vbSI6IDE4LAogICAgICAgICJtaW5ab29tIjogMCwKICAgICAgICAibm9XcmFwIjogZmFsc2UsCiAgICAgICAgIm9wYWNpdHkiOiAxLAogICAgICAgICJzdWJkb21haW5zIjogImFiYyIsCiAgICAgICAgInRtcyI6IGZhbHNlCn0pLmFkZFRvKG1hcF8xZTIxYjE2YzI0YTI0ZjJkYTY0OTg3NjNhZTU2NzQ3Nik7CiAgICAKICAgICAgICB2YXIgbWFya2VyXzNlMzEwZWZkODkxYjQ2ZGViMDVlZmZmY2Q0NzBjYWEzID0gTC5tYXJrZXIoCiAgICAgICAgICAgIFs0MC43NDQ2MywgLTczLjk5ODk2OTNdLAogICAgICAgICAgICB7CiAgICAgICAgICAgICAgICBpY29uOiBuZXcgTC5JY29uLkRlZmF1bHQoKSwKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgKS5hZGRUbyhtYXBfMWUyMWIxNmMyNGEyNGYyZGE2NDk4NzYzYWU1Njc0NzYpOwogICAgICAgIAogICAgCiAgICAgICAgICAgIHZhciBwb3B1cF9hNzdhNGIxMTYxODY0OTI2YTA5MGM4ODc4YTczMWRmMyA9IEwucG9wdXAoe21heFdpZHRoOiAnMTAwJScKICAgICAgICAgICAgCiAgICAgICAgICAgIH0pOwoKICAgICAgICAgICAgCiAgICAgICAgICAgICAgICB2YXIgaHRtbF9mMzkxNWM0MjU3NmE0MTljOTUwMWFhOWMwYjMxNDhiMiA9ICQoYDxkaXYgaWQ9Imh0bWxfZjM5MTVjNDI1NzZhNDE5Yzk1MDFhYTljMGIzMTQ4YjIiIHN0eWxlPSJ3aWR0aDogMTAwLjAlOyBoZWlnaHQ6IDEwMC4wJTsiPkRST0JLT1Y8L2Rpdj5gKVswXTsKICAgICAgICAgICAgICAgIHBvcHVwX2E3N2E0YjExNjE4NjQ5MjZhMDkwYzg4NzhhNzMxZGYzLnNldENvbnRlbnQoaHRtbF9mMzkxNWM0MjU3NmE0MTljOTUwMWFhOWMwYjMxNDhiMik7CiAgICAgICAgICAgIAoKICAgICAgICAgICAgbWFya2VyXzNlMzEwZWZkODkxYjQ2ZGViMDVlZmZmY2Q0NzBjYWEzLmJpbmRQb3B1cChwb3B1cF9hNzdhNGIxMTYxODY0OTI2YTA5MGM4ODc4YTczMWRmMykKICAgICAgICAgICAgOwoKICAgICAgICAgICAgCiAgICAgICAgCiAgICAKICAgICAgICB2YXIgbWFya2VyX2RkYTk2YWQ0M2Y1YzRmNGM4YzFmM2YwMGE2YzE0YjExID0gTC5tYXJrZXIoCiAgICAgICAgICAgIFs0MC43MzQ3NjgzLCAtNzMuOTc4NTAwMTUzMDUyNzVdLAogICAgICAgICAgICB7CiAgICAgICAgICAgICAgICBpY29uOiBuZXcgTC5JY29uLkRlZmF1bHQoKSwKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgKS5hZGRUbyhtYXBfMWUyMWIxNmMyNGEyNGYyZGE2NDk4NzYzYWU1Njc0NzYpOwogICAgICAgIAogICAgCiAgICAgICAgICAgIHZhciBwb3B1cF8yODRlNmI1MjdhNDA0OWI2OWE0YWFjZGM0YTdiZWM4ZCA9IEwucG9wdXAoe21heFdpZHRoOiAnMTAwJScKICAgICAgICAgICAgCiAgICAgICAgICAgIH0pOwoKICAgICAgICAgICAgCiAgICAgICAgICAgICAgICB2YXIgaHRtbF84MDdjZDZlNDAyYjg0M2FkYTI2MDNiOTMyODc4M2Q4NiA9ICQoYDxkaXYgaWQ9Imh0bWxfODA3Y2Q2ZTQwMmI4NDNhZGEyNjAzYjkzMjg3ODNkODYiIHN0eWxlPSJ3aWR0aDogMTAwLjAlOyBoZWlnaHQ6IDEwMC4wJTsiPkRST0JLT1Y8L2Rpdj5gKVswXTsKICAgICAgICAgICAgICAgIHBvcHVwXzI4NGU2YjUyN2E0MDQ5YjY5YTRhYWNkYzRhN2JlYzhkLnNldENvbnRlbnQoaHRtbF84MDdjZDZlNDAyYjg0M2FkYTI2MDNiOTMyODc4M2Q4Nik7CiAgICAgICAgICAgIAoKICAgICAgICAgICAgbWFya2VyX2RkYTk2YWQ0M2Y1YzRmNGM4YzFmM2YwMGE2YzE0YjExLmJpbmRQb3B1cChwb3B1cF8yODRlNmI1MjdhNDA0OWI2OWE0YWFjZGM0YTdiZWM4ZCkKICAgICAgICAgICAgOwoKICAgICAgICAgICAgCiAgICAgICAgCjwvc2NyaXB0Pg== onload=\"this.contentDocument.open();this.contentDocument.write(atob(this.getAttribute('data-html')));this.contentDocument.close();\" allowfullscreen webkitallowfullscreen mozallowfullscreen></iframe></div></div>"
+            ],
+            "text/plain": [
+              "<folium.folium.Map at 0x7f227767db38>"
+            ]
+          },
+          "metadata": {
+            "tags": []
+          }
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "VRAGXxnSjzBE"
+      },
+      "source": [
+        "### Use case 1 (list): Research a list of individuals by first and last name\n",
+        "Enter a list of first / last names, and generate all donations for these people."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 1000
+        },
+        "id": "ScYACd8MjyfY",
+        "outputId": "070e2605-b32e-417c-f959-9b3a940f30a9"
+      },
+      "source": [
+        "first = ['GLEB', 'JOHN']\n",
+        "last = ['DROBKOV', 'STEPHENS']\n",
+        "## Let's say we look for John Legend = aka John Stephens\n",
+        "\n",
+        "sample_list = sample[sample.first_name.isin(first)]\n",
+        "sample_list = sample_list[sample_list.last_name.isin(last)]\n",
+        "\n",
+        "sample_list"
+      ],
+      "execution_count": 19,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/html": [
+              "<div>\n",
+              "<style scoped>\n",
+              "    .dataframe tbody tr th:only-of-type {\n",
+              "        vertical-align: middle;\n",
+              "    }\n",
+              "\n",
+              "    .dataframe tbody tr th {\n",
+              "        vertical-align: top;\n",
+              "    }\n",
+              "\n",
+              "    .dataframe thead th {\n",
+              "        text-align: right;\n",
+              "    }\n",
+              "</style>\n",
+              "<table border=\"1\" class=\"dataframe\">\n",
+              "  <thead>\n",
+              "    <tr style=\"text-align: right;\">\n",
+              "      <th></th>\n",
+              "      <th>last_name</th>\n",
+              "      <th>first_name</th>\n",
+              "      <th>address_one</th>\n",
+              "      <th>city</th>\n",
+              "      <th>state</th>\n",
+              "      <th>zip</th>\n",
+              "      <th>employer</th>\n",
+              "      <th>occupation</th>\n",
+              "      <th>date</th>\n",
+              "      <th>memo_text</th>\n",
+              "      <th>amount</th>\n",
+              "    </tr>\n",
+              "  </thead>\n",
+              "  <tbody>\n",
+              "    <tr>\n",
+              "      <th>473444</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>BCG</td>\n",
+              "      <td>DATA SCIENTIST</td>\n",
+              "      <td>2019-9-27</td>\n",
+              "      <td>Earmarked for BERNIE 2020 (C00696948)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473445</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>BCG</td>\n",
+              "      <td>DATA SCIENTIST</td>\n",
+              "      <td>2019-12-16</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>2.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473446</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>BCG</td>\n",
+              "      <td>DATA SCIENTIST</td>\n",
+              "      <td>2019-12-16</td>\n",
+              "      <td>Earmarked for ALEXANDRIA OCASIO-CORTEZ FOR CON...</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473447</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2019-12-16</td>\n",
+              "      <td>Earmarked for WARREN FOR PRESIDENT, INC. (C006...</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473448</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2019-12-16</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>2.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473449</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2019-12-31</td>\n",
+              "      <td>Earmarked for BERNIE 2020 (C00696948)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>473450</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2019-12-31</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>2.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>1754415</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>200 W 57 ST STE 1403</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND TOURING, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2019-9-17</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>25.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>1754416</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>200 W 57 ST STE 1403</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND TOURING, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2019-9-17</td>\n",
+              "      <td>Earmarked for FAIR FIGHT, INC. PAC - FEDERAL (...</td>\n",
+              "      <td>5000.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>1754417</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>200 W 57 ST STE 1403</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND TOURING, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2019-9-18</td>\n",
+              "      <td>Earmarked for WARREN FOR PRESIDENT, INC. (C006...</td>\n",
+              "      <td>2200.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>1754418</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>200 W 57 ST STE 1403</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND TOURING, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2019-10-14</td>\n",
+              "      <td>Earmarked for WARREN FOR PRESIDENT, INC. (C006...</td>\n",
+              "      <td>600.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>1754419</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>200 W 57 ST STE 1403</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND TOURING, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2019-10-14</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>60.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>1754420</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>200 W 57 ST STE 1403</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND TOURING, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2019-11-16</td>\n",
+              "      <td>Earmarked for COMMITTEE TO ELECT TEDRA COBB (C...</td>\n",
+              "      <td>2800.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>1754421</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>200 W 57 ST STE 1403</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND TOURING, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2019-12-5</td>\n",
+              "      <td>Earmarked for CORY 2020 (C00695510)</td>\n",
+              "      <td>500.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>1754422</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>200 W 57 ST STE 1403</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND TOURING, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2019-12-5</td>\n",
+              "      <td>Earmarked for JULIAN FOR THE FUTURE (C00693044)</td>\n",
+              "      <td>1000.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>1754423</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>200 W 57 ST STE 1403</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND TOURING, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2019-12-13</td>\n",
+              "      <td>Earmarked for JAIME HARRISON FOR US SENATE (C0...</td>\n",
+              "      <td>1000.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>176053</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-2-6</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>3.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>176054</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-2-6</td>\n",
+              "      <td>Earmarked for BERNIE 2020 (C00696948)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>368751</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-04-08</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>368752</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-04-08</td>\n",
+              "      <td>Earmarked for JACKIE GORDON FOR CONGRESS (C007...</td>\n",
+              "      <td>1000.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>368753</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-04-14</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>100.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>368754</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-04-14</td>\n",
+              "      <td>Earmarked for BIDEN FOR PRESIDENT (C00703975)</td>\n",
+              "      <td>5000.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>108281</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-05-05</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>1.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>108282</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>431 E 20TH ST APT 13F</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10010</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-05-05</td>\n",
+              "      <td>Earmarked for ALEXANDRIA OCASIO-CORTEZ FOR CON...</td>\n",
+              "      <td>10.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>108283</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-05-25</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>2.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>108284</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-05-25</td>\n",
+              "      <td>Earmarked for BIDEN FOR PRESIDENT (C00703975)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>401737</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-05-05</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>100.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>401738</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-05-05</td>\n",
+              "      <td>Earmarked for THERESA GREENFIELD FOR IOWA (C00...</td>\n",
+              "      <td>2000.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>154843</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-06-12</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>3.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>154844</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-06-12</td>\n",
+              "      <td>Earmarked for MONDAIRE FOR CONGRESS (C00711150)</td>\n",
+              "      <td>100.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>154845</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-06-16</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>3.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>154846</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-06-16</td>\n",
+              "      <td>Earmarked for LOPEZ FOR THE PEOPLE (C00717256)</td>\n",
+              "      <td>100.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>126833</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-07-01</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>1.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>126834</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-07-01</td>\n",
+              "      <td>Earmarked for THE SQUAD VICTORY FUND (C00750166)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>557662</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-08-15</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>280.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>557663</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-08-15</td>\n",
+              "      <td>Earmarked for FRIENDS OF DESIREE TIMS (C00713743)</td>\n",
+              "      <td>2800.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>557664</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-08-19</td>\n",
+              "      <td>Earmarked for KATE FOR CONGRESS (C00711630)</td>\n",
+              "      <td>2800.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>557665</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-08-19</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>280.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>557666</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-08-27</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>280.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>557667</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-08-27</td>\n",
+              "      <td>Earmarked for BIDEN FOR PRESIDENT (C00703975)</td>\n",
+              "      <td>1400.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>557668</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-08-27</td>\n",
+              "      <td>Earmarked for DEMOCRATIC NATIONAL COMMITTEE (C...</td>\n",
+              "      <td>1400.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>557669</th>\n",
+              "      <td>STEPHENS</td>\n",
+              "      <td>JOHN</td>\n",
+              "      <td>244 W 54 ST 9TH FLR</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10019</td>\n",
+              "      <td>JOHN LEGEND MUSIC, INC.</td>\n",
+              "      <td>MUSICIAN</td>\n",
+              "      <td>2020-08-31</td>\n",
+              "      <td>Earmarked for REALLY AMERICAN PAC ()</td>\n",
+              "      <td>5000.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>914492</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-08-11</td>\n",
+              "      <td>Earmarked for BIDEN FOR PRESIDENT (C00703975)</td>\n",
+              "      <td>50.000</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>914493</th>\n",
+              "      <td>DROBKOV</td>\n",
+              "      <td>GLEB</td>\n",
+              "      <td>313 W 22ND ST APT 1B</td>\n",
+              "      <td>NEW YORK</td>\n",
+              "      <td>NY</td>\n",
+              "      <td>10011</td>\n",
+              "      <td>CAPGEMINI</td>\n",
+              "      <td>CONSULTANT</td>\n",
+              "      <td>2020-08-11</td>\n",
+              "      <td>Contribution to ActBlue</td>\n",
+              "      <td>3.000</td>\n",
+              "    </tr>\n",
+              "  </tbody>\n",
+              "</table>\n",
+              "</div>"
+            ],
+            "text/plain": [
+              "        last_name first_name            address_one      city state    zip  \\\n",
+              "473444    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "473445    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "473446    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "473447    DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "473448    DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "473449    DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "473450    DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "1754415  STEPHENS       JOHN   200 W 57 ST STE 1403  NEW YORK    NY  10019   \n",
+              "1754416  STEPHENS       JOHN   200 W 57 ST STE 1403  NEW YORK    NY  10019   \n",
+              "1754417  STEPHENS       JOHN   200 W 57 ST STE 1403  NEW YORK    NY  10019   \n",
+              "1754418  STEPHENS       JOHN   200 W 57 ST STE 1403  NEW YORK    NY  10019   \n",
+              "1754419  STEPHENS       JOHN   200 W 57 ST STE 1403  NEW YORK    NY  10019   \n",
+              "1754420  STEPHENS       JOHN   200 W 57 ST STE 1403  NEW YORK    NY  10019   \n",
+              "1754421  STEPHENS       JOHN   200 W 57 ST STE 1403  NEW YORK    NY  10019   \n",
+              "1754422  STEPHENS       JOHN   200 W 57 ST STE 1403  NEW YORK    NY  10019   \n",
+              "1754423  STEPHENS       JOHN   200 W 57 ST STE 1403  NEW YORK    NY  10019   \n",
+              "176053    DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "176054    DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "368751   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "368752   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "368753   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "368754   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "108281    DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "108282    DROBKOV       GLEB  431 E 20TH ST APT 13F  NEW YORK    NY  10010   \n",
+              "108283    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "108284    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "401737   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "401738   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "154843    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "154844    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "154845    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "154846    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "126833    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "126834    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "557662   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "557663   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "557664   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "557665   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "557666   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "557667   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "557668   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "557669   STEPHENS       JOHN    244 W 54 ST 9TH FLR  NEW YORK    NY  10019   \n",
+              "914492    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "914493    DROBKOV       GLEB   313 W 22ND ST APT 1B  NEW YORK    NY  10011   \n",
+              "\n",
+              "                          employer      occupation        date  \\\n",
+              "473444                         BCG  DATA SCIENTIST   2019-9-27   \n",
+              "473445                         BCG  DATA SCIENTIST  2019-12-16   \n",
+              "473446                         BCG  DATA SCIENTIST  2019-12-16   \n",
+              "473447                   CAPGEMINI      CONSULTANT  2019-12-16   \n",
+              "473448                   CAPGEMINI      CONSULTANT  2019-12-16   \n",
+              "473449                   CAPGEMINI      CONSULTANT  2019-12-31   \n",
+              "473450                   CAPGEMINI      CONSULTANT  2019-12-31   \n",
+              "1754415  JOHN LEGEND TOURING, INC.        MUSICIAN   2019-9-17   \n",
+              "1754416  JOHN LEGEND TOURING, INC.        MUSICIAN   2019-9-17   \n",
+              "1754417  JOHN LEGEND TOURING, INC.        MUSICIAN   2019-9-18   \n",
+              "1754418  JOHN LEGEND TOURING, INC.        MUSICIAN  2019-10-14   \n",
+              "1754419  JOHN LEGEND TOURING, INC.        MUSICIAN  2019-10-14   \n",
+              "1754420  JOHN LEGEND TOURING, INC.        MUSICIAN  2019-11-16   \n",
+              "1754421  JOHN LEGEND TOURING, INC.        MUSICIAN   2019-12-5   \n",
+              "1754422  JOHN LEGEND TOURING, INC.        MUSICIAN   2019-12-5   \n",
+              "1754423  JOHN LEGEND TOURING, INC.        MUSICIAN  2019-12-13   \n",
+              "176053                   CAPGEMINI      CONSULTANT    2020-2-6   \n",
+              "176054                   CAPGEMINI      CONSULTANT    2020-2-6   \n",
+              "368751     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-04-08   \n",
+              "368752     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-04-08   \n",
+              "368753     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-04-14   \n",
+              "368754     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-04-14   \n",
+              "108281                   CAPGEMINI      CONSULTANT  2020-05-05   \n",
+              "108282                   CAPGEMINI      CONSULTANT  2020-05-05   \n",
+              "108283                   CAPGEMINI      CONSULTANT  2020-05-25   \n",
+              "108284                   CAPGEMINI      CONSULTANT  2020-05-25   \n",
+              "401737     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-05-05   \n",
+              "401738     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-05-05   \n",
+              "154843                   CAPGEMINI      CONSULTANT  2020-06-12   \n",
+              "154844                   CAPGEMINI      CONSULTANT  2020-06-12   \n",
+              "154845                   CAPGEMINI      CONSULTANT  2020-06-16   \n",
+              "154846                   CAPGEMINI      CONSULTANT  2020-06-16   \n",
+              "126833                   CAPGEMINI      CONSULTANT  2020-07-01   \n",
+              "126834                   CAPGEMINI      CONSULTANT  2020-07-01   \n",
+              "557662     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-08-15   \n",
+              "557663     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-08-15   \n",
+              "557664     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-08-19   \n",
+              "557665     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-08-19   \n",
+              "557666     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-08-27   \n",
+              "557667     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-08-27   \n",
+              "557668     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-08-27   \n",
+              "557669     JOHN LEGEND MUSIC, INC.        MUSICIAN  2020-08-31   \n",
+              "914492                   CAPGEMINI      CONSULTANT  2020-08-11   \n",
+              "914493                   CAPGEMINI      CONSULTANT  2020-08-11   \n",
+              "\n",
+              "                                                 memo_text   amount  \n",
+              "473444               Earmarked for BERNIE 2020 (C00696948)   50.000  \n",
+              "473445                             Contribution to ActBlue    2.000  \n",
+              "473446   Earmarked for ALEXANDRIA OCASIO-CORTEZ FOR CON...   50.000  \n",
+              "473447   Earmarked for WARREN FOR PRESIDENT, INC. (C006...   50.000  \n",
+              "473448                             Contribution to ActBlue    2.000  \n",
+              "473449               Earmarked for BERNIE 2020 (C00696948)   50.000  \n",
+              "473450                             Contribution to ActBlue    2.000  \n",
+              "1754415                            Contribution to ActBlue   25.000  \n",
+              "1754416  Earmarked for FAIR FIGHT, INC. PAC - FEDERAL (... 5000.000  \n",
+              "1754417  Earmarked for WARREN FOR PRESIDENT, INC. (C006... 2200.000  \n",
+              "1754418  Earmarked for WARREN FOR PRESIDENT, INC. (C006...  600.000  \n",
+              "1754419                            Contribution to ActBlue   60.000  \n",
+              "1754420  Earmarked for COMMITTEE TO ELECT TEDRA COBB (C... 2800.000  \n",
+              "1754421                Earmarked for CORY 2020 (C00695510)  500.000  \n",
+              "1754422    Earmarked for JULIAN FOR THE FUTURE (C00693044) 1000.000  \n",
+              "1754423  Earmarked for JAIME HARRISON FOR US SENATE (C0... 1000.000  \n",
+              "176053                             Contribution to ActBlue    3.000  \n",
+              "176054               Earmarked for BERNIE 2020 (C00696948)   50.000  \n",
+              "368751                             Contribution to ActBlue   50.000  \n",
+              "368752   Earmarked for JACKIE GORDON FOR CONGRESS (C007... 1000.000  \n",
+              "368753                             Contribution to ActBlue  100.000  \n",
+              "368754       Earmarked for BIDEN FOR PRESIDENT (C00703975) 5000.000  \n",
+              "108281                             Contribution to ActBlue    1.000  \n",
+              "108282   Earmarked for ALEXANDRIA OCASIO-CORTEZ FOR CON...   10.000  \n",
+              "108283                             Contribution to ActBlue    2.000  \n",
+              "108284       Earmarked for BIDEN FOR PRESIDENT (C00703975)   50.000  \n",
+              "401737                             Contribution to ActBlue  100.000  \n",
+              "401738   Earmarked for THERESA GREENFIELD FOR IOWA (C00... 2000.000  \n",
+              "154843                             Contribution to ActBlue    3.000  \n",
+              "154844     Earmarked for MONDAIRE FOR CONGRESS (C00711150)  100.000  \n",
+              "154845                             Contribution to ActBlue    3.000  \n",
+              "154846      Earmarked for LOPEZ FOR THE PEOPLE (C00717256)  100.000  \n",
+              "126833                             Contribution to ActBlue    1.000  \n",
+              "126834    Earmarked for THE SQUAD VICTORY FUND (C00750166)   50.000  \n",
+              "557662                             Contribution to ActBlue  280.000  \n",
+              "557663   Earmarked for FRIENDS OF DESIREE TIMS (C00713743) 2800.000  \n",
+              "557664         Earmarked for KATE FOR CONGRESS (C00711630) 2800.000  \n",
+              "557665                             Contribution to ActBlue  280.000  \n",
+              "557666                             Contribution to ActBlue  280.000  \n",
+              "557667       Earmarked for BIDEN FOR PRESIDENT (C00703975) 1400.000  \n",
+              "557668   Earmarked for DEMOCRATIC NATIONAL COMMITTEE (C... 1400.000  \n",
+              "557669                Earmarked for REALLY AMERICAN PAC () 5000.000  \n",
+              "914492       Earmarked for BIDEN FOR PRESIDENT (C00703975)   50.000  \n",
+              "914493                             Contribution to ActBlue    3.000  "
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 19
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "KdaeG9Xahb_V"
+      },
+      "source": [
+        "### Usecase 2: Investigate Total Donations by Campaign\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 359
+        },
+        "id": "La4kYdGXhcEp",
+        "outputId": "bcaebb1a-d2ce-4c2d-8bdb-8c03eaba7b3f"
+      },
+      "source": [
+        "# Top 100 contribution destinations = count\n",
+        "pd.set_option('display.max_rows', 10)\n",
+        "pd.DataFrame(sample.memo_text.value_counts()).head(10)"
+      ],
+      "execution_count": 20,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/html": [
+              "<div>\n",
+              "<style scoped>\n",
+              "    .dataframe tbody tr th:only-of-type {\n",
+              "        vertical-align: middle;\n",
+              "    }\n",
+              "\n",
+              "    .dataframe tbody tr th {\n",
+              "        vertical-align: top;\n",
+              "    }\n",
+              "\n",
+              "    .dataframe thead th {\n",
+              "        text-align: right;\n",
+              "    }\n",
+              "</style>\n",
+              "<table border=\"1\" class=\"dataframe\">\n",
+              "  <thead>\n",
+              "    <tr style=\"text-align: right;\">\n",
+              "      <th></th>\n",
+              "      <th>memo_text</th>\n",
+              "    </tr>\n",
+              "  </thead>\n",
+              "  <tbody>\n",
+              "    <tr>\n",
+              "      <th>Contribution to ActBlue</th>\n",
+              "      <td>1222708</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>Earmarked for BERNIE 2020 (C00696948)</th>\n",
+              "      <td>733341</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>Earmarked for BIDEN FOR PRESIDENT (C00703975)</th>\n",
+              "      <td>706939</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>Earmarked for WARREN FOR PRESIDENT, INC. (C00693234)</th>\n",
+              "      <td>289993</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>Earmarked for DCCC (C00000935)</th>\n",
+              "      <td>261616</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>Earmarked for STOP REPUBLICANS (C00633404)</th>\n",
+              "      <td>199202</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>Earmarked for DSCC (C00042366)</th>\n",
+              "      <td>155897</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>Earmarked for PROGRESSIVE TURNOUT PROJECT (C00580068)</th>\n",
+              "      <td>131523</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>Earmarked for PETE FOR AMERICA, INC (C00697441)</th>\n",
+              "      <td>131108</td>\n",
+              "    </tr>\n",
+              "    <tr>\n",
+              "      <th>Earmarked for DEMOCRATIC NATIONAL COMMITTEE (C00010603)</th>\n",
+              "      <td>129617</td>\n",
+              "    </tr>\n",
+              "  </tbody>\n",
+              "</table>\n",
+              "</div>"
+            ],
+            "text/plain": [
+              "                                                    memo_text\n",
+              "Contribution to ActBlue                               1222708\n",
+              "Earmarked for BERNIE 2020 (C00696948)                  733341\n",
+              "Earmarked for BIDEN FOR PRESIDENT (C00703975)          706939\n",
+              "Earmarked for WARREN FOR PRESIDENT, INC. (C0069...     289993\n",
+              "Earmarked for DCCC (C00000935)                         261616\n",
+              "Earmarked for STOP REPUBLICANS (C00633404)             199202\n",
+              "Earmarked for DSCC (C00042366)                         155897\n",
+              "Earmarked for PROGRESSIVE TURNOUT PROJECT (C005...     131523\n",
+              "Earmarked for PETE FOR AMERICA, INC (C00697441)        131108\n",
+              "Earmarked for DEMOCRATIC NATIONAL COMMITTEE (C0...     129617"
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 20
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "PqnzgLXll2nK"
+      },
+      "source": [
+        "### Usecase 3: Create list of Actblue donations to all progressive causes"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "OrkQmfmMl2t1",
+        "outputId": "c0218b9d-78a7-457e-fbc7-6a4b6a01ce0d"
+      },
+      "source": [
+        "# Grouping destinations into 2020 relevant races\n",
+        "# focus on bernie, biden, warren, yang, aoc, pete , progressive causes\n",
+        "\n",
+        "# make everything lowercase\n",
+        "sample.columns = map(str.lower, sample.columns)\n",
+        "sample = sample.applymap(lambda s:s.lower() if type(s) == str else s)\n",
+        "\n",
+        "# remove contributions to ActBlue\n",
+        "act_blue_id_sub = sample[sample['memo_text'] != 'contribution to actblue']\n",
+        "print(act_blue_id_sub.shape[0]/sample.shape[0])\n",
+        "\n",
+        "# remove refunds\n",
+        "act_blue_id_sub['tag_refund'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"refund\",na=False), 'refund', 'other')\n",
+        "act_blue_id_sub = act_blue_id_sub[act_blue_id_sub['tag_refund'] != 'refund']\n",
+        "print(act_blue_id_sub.shape[0]/sample.shape[0]) # check percent left\n",
+        "\n",
+        "# fill nas - remove these too\n",
+        "act_blue_id_sub['memo_text'] = act_blue_id_sub['memo_text'].fillna(0)\n",
+        "act_blue_id_sub = act_blue_id_sub[act_blue_id_sub['memo_text'] != 0]\n",
+        "print(act_blue_id_sub.shape[0]/sample.shape[0]) # check percent left\n",
+        "\n",
+        "# tag strings of contribution text - count of donations\n",
+        "act_blue_id_sub['ct_prog'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"progressive\",na=False), 1,0)\n",
+        "act_blue_id_sub['ct_bern'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"bernie\",na=False), 1,0)\n",
+        "# act_blue_id_sub['ct_bide'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"biden\",na=False), 1,0)\n",
+        "# act_blue_id_sub['ct_warr'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"warren\",na=False), 1,0)\n",
+        "# act_blue_id_sub['ct_yang'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"yang\",na=False), 1,0)\n",
+        "# act_blue_id_sub['ct_aoc'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"alexandria\",na=False), 1,0)\n",
+        "# act_blue_id_sub['ct_pete'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"pete\",na=False), 1,0)\n",
+        "# act_blue_id_sub['ct_cori'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"cori\",na=False), 1,0)\n",
+        "# act_blue_id_sub['ct_jamaal'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"jamaal\",na=False), 1,0)\n",
+        "# act_blue_id_sub['ct_dsa'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"dsa\",na=False), 1,0)\n",
+        "\n",
+        "# tag strings of contribution text - sum of donations\n",
+        "act_blue_id_sub['sum_prog'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"progressive\",na=False), act_blue_id_sub['amount'],0)\n",
+        "act_blue_id_sub['sum_bern'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"bernie\",na=False), act_blue_id_sub['amount'],0)\n",
+        "# act_blue_id_sub['sum_bide'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"biden\",na=False), act_blue_id_sub['amount'],0)\n",
+        "# act_blue_id_sub['sum_warr'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"warren\",na=False), act_blue_id_sub['amount'],0)\n",
+        "# act_blue_id_sub['sum_yang'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"yang\",na=False), act_blue_id_sub['amount'],0)\n",
+        "# act_blue_id_sub['sum_aoc'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"alexandria\",na=False), act_blue_id_sub['amount'],0)\n",
+        "# act_blue_id_sub['sum_pete'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"pete\",na=False), act_blue_id_sub['amount'],0)\n",
+        "# act_blue_id_sub['sum_cori'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"cori\",na=False), act_blue_id_sub['amount'],0)\n",
+        "# act_blue_id_sub['sum_jamaal'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"jamaal\",na=False), act_blue_id_sub['amount'],0)\n",
+        "# act_blue_id_sub['sum_dsa'] = np.where(act_blue_id_sub['memo_text'].str.contains(\"dsa\",na=False), act_blue_id_sub['amount'],0)"
+      ],
+      "execution_count": 21,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "text": [
+            "0.8215527856307951\n"
+          ],
+          "name": "stdout"
+        },
+        {
+          "output_type": "stream",
+          "text": [
+            "/usr/local/lib/python3.6/dist-packages/ipykernel_launcher.py:13: SettingWithCopyWarning: \n",
+            "A value is trying to be set on a copy of a slice from a DataFrame.\n",
+            "Try using .loc[row_indexer,col_indexer] = value instead\n",
+            "\n",
+            "See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy\n",
+            "  del sys.path[0]\n"
+          ],
+          "name": "stderr"
+        },
+        {
+          "output_type": "stream",
+          "text": [
+            "0.8162977706576439\n",
+            "0.816294851772442\n"
+          ],
+          "name": "stdout"
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "d6PupHywltnH"
+      },
+      "source": [
+        "Create unique list of names and addresses - to campaign -- count number and total of donations:"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "T2pMtvebnt-p",
+        "outputId": "eee14af5-404b-4f9f-9d73-9c1105821f4f"
+      },
+      "source": [
+        "# Calculate full total\r\n",
+        "act_blue_id_sub['ct_all'] = 1\r\n",
+        "act_blue_id_sub['sum_all'] = act_blue_id_sub['amount']\r\n",
+        "\r\n",
+        "act_blue_id_sub.columns"
+      ],
+      "execution_count": 22,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "Index(['last_name', 'first_name', 'address_one', 'city', 'state', 'zip',\n",
+              "       'employer', 'occupation', 'date', 'memo_text', 'amount', 'tag_refund',\n",
+              "       'ct_prog', 'ct_bern', 'sum_prog', 'sum_bern', 'ct_all', 'sum_all'],\n",
+              "      dtype='object')"
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 22
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "Z4oKGvqDrHA-"
+      },
+      "source": [
+        "Count the number of rows to be extracted:"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "RfnxOjeAltul",
+        "outputId": "08fd91d2-8c97-445f-9861-746cf346d617"
+      },
+      "source": [
+        "research_list_grouped = act_blue_id_sub.groupby(['last_name', 'first_name', 'address_one', 'city', 'state', 'zip']).agg({'ct_all':'sum','sum_all':'sum','ct_bern':'sum','sum_bern':'sum'}).reset_index()\r\n",
+        "research_list_grouped.shape"
+      ],
+      "execution_count": 23,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "(1109654, 10)"
+            ]
+          },
+          "metadata": {
+            "tags": []
+          },
+          "execution_count": 23
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "mCrIfNZ0hcKh"
+      },
+      "source": [
+        "### Download this file to your Downloads folder on your local computer:"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 17
+        },
+        "id": "Yw3jMEEEshTq",
+        "outputId": "70a4d1d1-46f5-48b5-9ec2-299ea15329fe"
+      },
+      "source": [
+        "from google.colab import files\n",
+        "\n",
+        "research_list_grouped.to_csv('act_blue_extract_2019_2020.csv')\n",
+        "files.download('act_blue_extract_2019_2020.csv') "
+      ],
+      "execution_count": 24,
+      "outputs": [
+        {
+          "output_type": "display_data",
+          "data": {
+            "application/javascript": [
+              "\n",
+              "    async function download(id, filename, size) {\n",
+              "      if (!google.colab.kernel.accessAllowed) {\n",
+              "        return;\n",
+              "      }\n",
+              "      const div = document.createElement('div');\n",
+              "      const label = document.createElement('label');\n",
+              "      label.textContent = `Downloading \"${filename}\": `;\n",
+              "      div.appendChild(label);\n",
+              "      const progress = document.createElement('progress');\n",
+              "      progress.max = size;\n",
+              "      div.appendChild(progress);\n",
+              "      document.body.appendChild(div);\n",
+              "\n",
+              "      const buffers = [];\n",
+              "      let downloaded = 0;\n",
+              "\n",
+              "      const channel = await google.colab.kernel.comms.open(id);\n",
+              "      // Send a message to notify the kernel that we're ready.\n",
+              "      channel.send({})\n",
+              "\n",
+              "      for await (const message of channel.messages) {\n",
+              "        // Send a message to notify the kernel that we're ready.\n",
+              "        channel.send({})\n",
+              "        if (message.buffers) {\n",
+              "          for (const buffer of message.buffers) {\n",
+              "            buffers.push(buffer);\n",
+              "            downloaded += buffer.byteLength;\n",
+              "            progress.value = downloaded;\n",
+              "          }\n",
+              "        }\n",
+              "      }\n",
+              "      const blob = new Blob(buffers, {type: 'application/binary'});\n",
+              "      const a = document.createElement('a');\n",
+              "      a.href = window.URL.createObjectURL(blob);\n",
+              "      a.download = filename;\n",
+              "      div.appendChild(a);\n",
+              "      a.click();\n",
+              "      div.remove();\n",
+              "    }\n",
+              "  "
+            ],
+            "text/plain": [
+              "<IPython.core.display.Javascript object>"
+            ]
+          },
+          "metadata": {
+            "tags": []
+          }
+        },
+        {
+          "output_type": "display_data",
+          "data": {
+            "application/javascript": [
+              "download(\"download_97ed6bde-869c-41b5-a5ca-2b245776fb1c\", \"act_blue_extract_2019_2020.csv\", 81195500)"
+            ],
+            "text/plain": [
+              "<IPython.core.display.Javascript object>"
+            ]
+          },
+          "metadata": {
+            "tags": []
+          }
+        }
+      ]
+    }
+  ]
+}
